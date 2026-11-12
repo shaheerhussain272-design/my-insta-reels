@@ -1,10 +1,9 @@
 import os
 import json
-import asyncio
 import datetime
 from PIL import Image, ImageDraw, ImageFont
 from google import genai
-import edge_tts
+from gtts import gTTS
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -39,11 +38,6 @@ today = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 with open(f"reels/psych_{today}_caption.txt", "w", encoding="utf-8") as f:
     f.write(data["caption"])
 
-# Helper to generate natural human-sounding voiceover
-async def make_voice(text, filename):
-    communicate = edge_tts.Communicate(text, "en-US-AndrewNeural")
-    await communicate.save(filename)
-
 # Helper to wrap text cleanly inside cards
 def wrap_text(text, max_chars):
     words, lines, curr = text.split(), [], ""
@@ -59,7 +53,7 @@ def wrap_text(text, max_chars):
 # Helper to draw sleek psychology motion-graphic cards
 def draw_slide(topic, step, headline, body, idx, total_slides):
     W, H = 1080, 1920
-    img = Image.new("RGB", (W, H), color=(11, 15, 25)) # Deep Midnight Background
+    img = Image.new("RGB", (W, H), color=(11, 15, 25))
     draw = ImageDraw.Draw(img)
 
     font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
@@ -82,7 +76,7 @@ def draw_slide(topic, step, headline, body, idx, total_slides):
     draw.text((135, 640), wrap_text(headline, 19), font=font_title, fill=(255, 255, 255))
     draw.text((135, 980), wrap_text(body, 27), font=font_body, fill=(203, 213, 225))
 
-    # Bottom Slide Progress Dots / Bar
+    # Bottom Slide Progress Bar
     bar_width = 920
     progress = int(bar_width * ((idx + 1) / total_slides))
     draw.rounded_rectangle([80, 1520, 1000, 1540], radius=10, fill=(30, 41, 59))
@@ -98,13 +92,14 @@ total = len(data["slides"])
 
 for i, s in enumerate(data["slides"]):
     audio_file = f"voice_{i}.mp3"
-    asyncio.run(make_voice(s["narration"], audio_file))
+    tts = gTTS(text=s["narration"], lang="en", tld="co.uk", slow=False)
+    tts.save(audio_file)
+
     audio_clip = AudioFileClip(audio_file)
     dur = audio_clip.duration + 0.35
 
     img_file = draw_slide(data["topic"], s["step"], s["headline"], s["body"], i, total)
 
-    # Smooth subtle zoom-in motion on every card
     img_clip = (
         ImageClip(img_file)
         .with_duration(dur)
