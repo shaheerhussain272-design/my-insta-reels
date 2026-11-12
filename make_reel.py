@@ -16,7 +16,7 @@ Do not include any labels like 'Part 1' or 'Quote:'.
 """
 
 response = client.models.generate_content(
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash-lite",
     contents=prompt
 )
 
@@ -44,6 +44,7 @@ duration = max(audio.duration + 1.0, 5.0)
 background = ColorClip(size=(1080, 1920), color=(18, 18, 24), duration=duration)
 
 txt_clip = TextClip(
+    font="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     text=quote_text,
     font_size=65,
     color="white",
