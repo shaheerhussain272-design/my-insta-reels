@@ -1,0 +1,34 @@
+name: Build Instagram Reel
+
+on:
+  workflow_dispatch: # Lets you click a button to run it anytime
+  schedule:
+    - cron: '0 10 * * *' # Runs automatically every day at 10:00 AM UTC
+
+jobs:
+  create-video:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open Folder
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Video & AI Tools
+        run: pip install google-genai gTTS moviepy
+
+      - name: Generate Reel with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python make_reel.py
+
+      - name: Save Reel to GitHub Folder
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Reel Bot"
+          git add reels/
+          git commit -m "New Instagram Reel generated" || exit 0
+          git push
