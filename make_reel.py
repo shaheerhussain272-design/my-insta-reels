@@ -1,58 +1,118 @@
 import os
+import json
+import asyncio
 import datetime
+from PIL import Image, ImageDraw, ImageFont
 from google import genai
-from gtts import gTTS
-from moviepy import ColorClip, TextClip, CompositeVideoClip, AudioFileClip
+import edge_tts
+from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 
-# 1. Ask Gemini for a short Reel script & caption
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
+# 1. Ask Gemini for a fascinating Psychology Fact Reel script
 prompt = """
-Write a punchy, 10-second motivational quote for an Instagram Reel.
-Format your response in two exact parts separated by '|||':
-Part 1: The quote itself (maximum 15 words, easy to read on screen).
-Part 2: An engaging Instagram caption with 5 hashtags.
-Do not include any labels like 'Part 1' or 'Quote:'.
+Create a 25-to-30 second educational Instagram Reel about a fascinating, lesser-known human psychology fact or cognitive bias.
+Return ONLY valid JSON with this exact structure (no markdown backticks, no extra text):
+{
+  "topic": "Short Psychology Title (max 4 words)",
+  "slides": [
+    {"step": "HOOK", "headline": "Curiosity-sparking question (4-7 words)", "body": "1 short intriguing line.", "narration": "Spoken hook to stop the scroll."},
+    {"step": "THE FACT", "headline": "Name of Phenomenon or Rule", "body": "Clear 10-14 word explanation of what happens.", "narration": "Spoken explanation of the psychology fact."},
+    {"step": "WHY IT HAPPENS", "headline": "The Brain's Trigger", "body": "Clear 10-14 word explanation of why our brain does this.", "narration": "Spoken explanation of the brain mechanism."},
+    {"step": "TAKEAWAY", "headline": "How To Use This", "body": "Actionable 8-12 word advice for daily life.", "narration": "Spoken practical takeaway."}
+  ],
+  "caption": "Engaging Instagram caption summarizing the psychology fact with a question for comments and 5 psychology hashtags."
+}
 """
 
-response = client.models.generate_content(
+res = client.models.generate_content(
     model="gemini-3.5-flash-lite",
     contents=prompt
 )
+raw_json = res.text.strip().removeprefix("```json").removesuffix("```").strip()
+data = json.loads(raw_json)
 
-parts = response.text.strip().split("|||")
-quote_text = parts[0].strip()
-caption_text = parts[1].strip() if len(parts) > 1 else quote_text
-
-# Create output folder
 os.makedirs("reels", exist_ok=True)
 today = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-# 2. Save the caption file
-caption_path = f"reels/reel_{today}_caption.txt"
-with open(caption_path, "w", encoding="utf-8") as f:
-    f.write(caption_text)
+# Save caption file
+with open(f"reels/psych_{today}_caption.txt", "w", encoding="utf-8") as f:
+    f.write(data["caption"])
 
-# 3. Generate Voiceover Audio
-audio_path = "voiceover.mp3"
-tts = gTTS(text=quote_text, lang="en", slow=False)
-tts.save(audio_path)
-audio = AudioFileClip(audio_path)
-duration = max(audio.duration + 1.0, 5.0)
+# Helper to generate natural human-sounding voiceover
+async def make_voice(text, filename):
+    communicate = edge_tts.Communicate(text, "en-US-AndrewNeural")
+    await communicate.save(filename)
 
-# 4. Build Vertical 9:16 Video (1080x1920)
-background = ColorClip(size=(1080, 1920), color=(18, 18, 24), duration=duration)
+# Helper to wrap text cleanly inside cards
+def wrap_text(text, max_chars):
+    words, lines, curr = text.split(), [], ""
+    for w in words:
+        if len(curr + w) <= max_chars:
+            curr += w + " "
+        else:
+            lines.append(curr.strip())
+            curr = w + " "
+    lines.append(curr.strip())
+    return "\n".join(lines)
 
-txt_clip = TextClip(
-    font="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    text=quote_text,
-    font_size=65,
-    color="white",
-    size=(900, None),
-    method="caption",
-    text_align="center"
-).with_position("center").with_duration(duration)
+# Helper to draw sleek psychology motion-graphic cards
+def draw_slide(topic, step, headline, body, idx, total_slides):
+    W, H = 1080, 1920
+    img = Image.new("RGB", (W, H), color=(11, 15, 25)) # Deep Midnight Background
+    draw = ImageDraw.Draw(img)
 
-video = CompositeVideoClip([background, txt_clip]).with_audio(audio)
-video_path = f"reels/reel_{today}.mp4"
-video.write_videofile(video_path, fps=24, codec="libx264", audio_codec="aac")
+    font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
+    font_step = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 72)
+    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
+
+    # Top Category Badge
+    draw.rounded_rectangle([80, 170, 1000, 255], radius=25, fill=(24, 32, 50))
+    draw.text((115, 193), f"PSYCHOLOGY  •  {topic.upper()}", font=font_pill, fill=(167, 139, 250))
+
+    # Main Card Container
+    draw.rounded_rectangle([80, 440, 1000, 1420], radius=45, fill=(20, 27, 45), outline=(139, 92, 246), width=4)
+
+    # Step Tag Pill
+    draw.rounded_rectangle([135, 510, 480, 575], radius=15, fill=(139, 92, 246))
+    draw.text((160, 523), step.upper(), font=font_step, fill=(255, 255, 255))
+
+    # Headline & Body Text
+    draw.text((135, 640), wrap_text(headline, 19), font=font_title, fill=(255, 255, 255))
+    draw.text((135, 980), wrap_text(body, 27), font=font_body, fill=(203, 213, 225))
+
+    # Bottom Slide Progress Dots / Bar
+    bar_width = 920
+    progress = int(bar_width * ((idx + 1) / total_slides))
+    draw.rounded_rectangle([80, 1520, 1000, 1540], radius=10, fill=(30, 41, 59))
+    draw.rounded_rectangle([80, 1520, 80 + progress, 1540], radius=10, fill=(167, 139, 250))
+
+    path = f"slide_{idx}.png"
+    img.save(path)
+    return path
+
+# 2. Build each slide with smooth motion + voiceover sync
+clips = []
+total = len(data["slides"])
+
+for i, s in enumerate(data["slides"]):
+    audio_file = f"voice_{i}.mp3"
+    asyncio.run(make_voice(s["narration"], audio_file))
+    audio_clip = AudioFileClip(audio_file)
+    dur = audio_clip.duration + 0.35
+
+    img_file = draw_slide(data["topic"], s["step"], s["headline"], s["body"], i, total)
+
+    # Smooth subtle zoom-in motion on every card
+    img_clip = (
+        ImageClip(img_file)
+        .with_duration(dur)
+        .resized(lambda t: 1.0 + 0.035 * (t / dur))
+        .with_position("center")
+        .with_audio(audio_clip)
+    )
+    clips.append(img_clip)
+
+final_video = concatenate_videoclips(clips, method="compose")
+final_video.write_videofile(f"reels/psych_{today}.mp4", fps=24, codec="libx264", audio_codec="aac")
